@@ -16,7 +16,6 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import (async_track_utc_time_change,
                                          async_call_later)
-from homeassistant.util import dt as dt_util
 
 REQUIREMENTS = ['pyMetno==0.2.0']
 
@@ -113,12 +112,8 @@ class MetWeather(WeatherEntity):
                                                   clientsession,
                                                   URL
                                                   )
-        self._temperature = None
-        self._condition = None
-        self._pressure = None
-        self._humidity = None
-        self._wind_speed = None
-        self._wind_bearing = None
+        self._current_weather_data = {}
+        self._forecast_data = None
 
     async def async_added_to_hass(self):
         """Start fetching data."""
@@ -145,38 +140,8 @@ class MetWeather(WeatherEntity):
 
     async def _update(self, *_):
         """Get the latest data from Met.no."""
-        import metno
-        if self._weather_data is None:
-            return
-
-        now = dt_util.utcnow()
-
-        ordered_entries = []
-        for time_entry in self._weather_data.data['product']['time']:
-            valid_from = dt_util.parse_datetime(time_entry['@from'])
-            valid_to = dt_util.parse_datetime(time_entry['@to'])
-
-            if now >= valid_to:
-                # Has already passed. Never select this.
-                continue
-
-            average_dist = (abs((valid_to - now).total_seconds()) +
-                            abs((valid_from - now).total_seconds()))
-
-            ordered_entries.append((average_dist, time_entry))
-
-        if not ordered_entries:
-            return
-        ordered_entries.sort(key=lambda item: item[0])
-
-        self._temperature = metno.get_forecast('temperature', ordered_entries)
-        self._condition = CONDITIONS.get(metno.get_forecast('symbol',
-                                                            ordered_entries))
-        self._pressure = metno.get_forecast('pressure', ordered_entries)
-        self._humidity = metno.get_forecast('humidity', ordered_entries)
-        self._wind_speed = metno.get_forecast('windSpeed', ordered_entries)
-        self._wind_bearing = metno.get_forecast('windDirection',
-                                                ordered_entries)
+        self._current_weather_data = self._weather_data.get_current_weather()
+        self._forecast_data = self._weather_data.get_forecast()
         self.async_schedule_update_ha_state()
 
     @property
@@ -187,12 +152,12 @@ class MetWeather(WeatherEntity):
     @property
     def condition(self):
         """Return the current condition."""
-        return self._condition
+        return CONDITIONS.get(self._current_weather_data.get('condition'))
 
     @property
     def temperature(self):
         """Return the temperature."""
-        return self._temperature
+        return self._current_weather_data.get('temperature')
 
     @property
     def temperature_unit(self):
@@ -202,24 +167,29 @@ class MetWeather(WeatherEntity):
     @property
     def pressure(self):
         """Return the pressure."""
-        return self._pressure
+        return self._current_weather_data.get('pressure')
 
     @property
     def humidity(self):
         """Return the humidity."""
-        return self._humidity
+        return self._current_weather_data.get('humidity')
 
     @property
     def wind_speed(self):
         """Return the wind speed."""
-        return self._wind_speed
+        return self._current_weather_data.get('wind_speed')
 
     @property
     def wind_bearing(self):
         """Return the wind direction."""
-        return self._wind_bearing
+        return self._current_weather_data.get('wind_bearing')
 
     @property
     def attribution(self):
         """Return the attribution."""
         return CONF_ATTRIBUTION
+
+    @property
+    def forecast(self):
+        """Return the forecast array."""
+        return self._forecast_data
