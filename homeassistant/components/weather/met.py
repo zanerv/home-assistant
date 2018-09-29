@@ -18,7 +18,7 @@ from homeassistant.helpers.event import (async_track_utc_time_change,
                                          async_call_later)
 import homeassistant.util.dt as dt_util
 
-REQUIREMENTS = ['pyMetno==0.2.0']
+REQUIREMENTS = ['pyMetno==0.3.0']
 
 _LOGGER = logging.getLogger(__name__)
 
