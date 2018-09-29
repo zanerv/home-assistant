@@ -99,7 +99,8 @@ class MetWeather(WeatherEntity):
     async def _update(self, *_):
         """Get the latest data from Met.no."""
         self._current_weather_data = self._weather_data.get_current_weather()
-        self._forecast_data = self._weather_data.get_forecast(dt_util.DEFAULT_TIME_ZONE)
+        time_zone = dt_util.DEFAULT_TIME_ZONE
+        self._forecast_data = self._weather_data.get_forecast(time_zone)
         self.async_schedule_update_ha_state()
 
     @property
