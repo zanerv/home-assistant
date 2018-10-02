@@ -71,6 +71,7 @@ class PolicyPermissions(DefaultPermissions):
 
 class _OwnerPermissions(DefaultPermissions):
     """Owner permissions."""
+
     # pylint: disable=no-self-use
 
     def check_entity(self, entity_id: str, *keys):
@@ -82,7 +83,7 @@ class _OwnerPermissions(DefaultPermissions):
         return entities
 
 
-OwnerPermissions = _OwnerPermissions()
+OwnerPermissions = _OwnerPermissions()  # pylint: disable=invalid-name
 
 
 def _compile_entities(policy):
