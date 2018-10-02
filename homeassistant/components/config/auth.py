@@ -105,7 +105,9 @@ def _user_info(user):
         'name': user.name,
         'is_owner': user.is_owner,
         'is_active': user.is_active,
-        'system_generated': user.system_generated,
+        # Temp, backwards compat since 0.80, remove in 85
+        'system_generated': user.group.system_generated,
+        'group_id': user.group.id,
         'credentials': [
             {
                 'type': c.auth_provider_type,

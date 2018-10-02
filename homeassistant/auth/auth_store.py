@@ -1,18 +1,83 @@
 """Storage for auth models."""
 from collections import OrderedDict
 from datetime import timedelta
+import hmac
 from logging import getLogger
 from typing import Any, Dict, List, Optional  # noqa: F401
-import hmac
+import uuid
 
 from homeassistant.auth.const import ACCESS_TOKEN_EXPIRATION
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import storage
 from homeassistant.util import dt as dt_util
 
 from . import models
 
-STORAGE_VERSION = 1
+STORAGE_VERSION = 2
 STORAGE_KEY = 'auth'
+
+
+class DataStore(storage.Store):
+    """Store the auth data on disk using JSON."""
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize the data store."""
+        super().__init__(hass, STORAGE_VERSION, STORAGE_KEY, True)
+
+    async def _async_migrate_func(self, old_version: int,
+                                  old_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Migrate to the new version."""
+        if old_version <= 1:
+            system_group_id = old_data['system_user_group_id'] = \
+                uuid.uuid4().hex
+            family_group_id = old_data['default_new_user_group_id'] = \
+                uuid.uuid4().hex
+
+            old_data['groups'] = [
+                {
+                    'name': 'System',
+                    'id': system_group_id,
+                    'system_generated': True,
+                },
+                {
+                    'name': 'Family',
+                    'id': family_group_id,
+                    'system_generated': False,
+                },
+            ]
+
+            for user_dict in old_data['users']:
+                if user_dict.pop('system_generated'):
+                    group_id = system_group_id
+                else:
+                    group_id = family_group_id
+
+                user_dict['group_id'] = group_id
+
+            refresh_tokens = []
+
+            for rt_dict in old_data['refresh_tokens']:
+                if 'jwt_key' not in rt_dict:
+                    continue
+
+                if 'token_type' not in rt_dict:
+                    if rt_dict['client_id'] is None:
+                        token_type = models.TOKEN_TYPE_SYSTEM
+                    else:
+                        token_type = models.TOKEN_TYPE_NORMAL
+
+                    rt_dict['token_type'] = token_type
+
+                rt_dict.setdefault('last_used_at', None)
+                rt_dict.setdefault('client_name', None)
+                rt_dict.setdefault('client_icon', None)
+                rt_dict.setdefault('last_used_ip', None)
+
+                refresh_tokens.append(rt_dict)
+
+            old_data['refresh_tokens'] = refresh_tokens
+
+        return old_data
 
 
 class AuthStore:
@@ -28,8 +93,10 @@ class AuthStore:
         """Initialize the auth store."""
         self.hass = hass
         self._users = None  # type: Optional[Dict[str, models.User]]
-        self._store = hass.helpers.storage.Store(STORAGE_VERSION, STORAGE_KEY,
-                                                 private=True)
+        self._groups = None  # type: Optional[Dict[str, models.Group]]
+        self._default_new_user_group_id = None  # type: Optional[str]
+        self._system_user_group_id = None  # type: Optional[str]
+        self._store = DataStore(hass)
 
     async def async_get_users(self) -> List[models.User]:
         """Retrieve all users."""
@@ -50,15 +117,26 @@ class AuthStore:
     async def async_create_user(
             self, name: Optional[str], is_owner: Optional[bool] = None,
             is_active: Optional[bool] = None,
+            group_id: Optional[str] = None,
             system_generated: Optional[bool] = None,
             credentials: Optional[models.Credentials] = None) -> models.User:
         """Create a new user."""
         if self._users is None:
             await self._async_load()
-            assert self._users is not None
+
+        assert self._users is not None
+        assert self._groups is not None
+        assert self._system_user_group_id is not None
+        assert self._default_new_user_group_id is not None
+
+        if system_generated:
+            group_id = self._system_user_group_id
+        elif group_id is None:
+            group_id = self._default_new_user_group_id
 
         kwargs = {
-            'name': name
+            'name': name,
+            'group': self._groups[group_id],
         }  # type: Dict[str, Any]
 
         if is_owner is not None:
@@ -66,9 +144,6 @@ class AuthStore:
 
         if is_active is not None:
             kwargs['is_active'] = is_active
-
-        if system_generated is not None:
-            kwargs['system_generated'] = system_generated
 
         new_user = models.User(**kwargs)
 
@@ -214,14 +289,32 @@ class AuthStore:
         if self._users is not None:
             return
 
-        users = OrderedDict()  # type: Dict[str, models.User]
-
         if data is None:
-            self._users = users
+            self._set_defaults()
             return
 
+        users = OrderedDict()  # type: Dict[str, models.User]
+        groups = OrderedDict()  # type: Dict[str, models.Group]
+
+        # When creating objects we mention each attribute explicetely. This
+        # prevents crashing if user rolls back HA version after a new property
+        # was added.
+
+        for group_dict in data['groups']:
+            groups[group_dict['id']] = models.Group(
+                name=group_dict['name'],
+                id=group_dict['id'],
+                system_generated=group_dict['system_generated'],
+            )
+
         for user_dict in data['users']:
-            users[user_dict['id']] = models.User(**user_dict)
+            users[user_dict['id']] = models.User(
+                name=user_dict['name'],
+                group=groups[user_dict['group_id']],
+                id=user_dict['id'],
+                is_owner=user_dict['is_owner'],
+                is_active=user_dict['is_active'],
+            )
 
         for cred_dict in data['credentials']:
             users[cred_dict['user_id']].credentials.append(models.Credentials(
@@ -233,10 +326,6 @@ class AuthStore:
             ))
 
         for rt_dict in data['refresh_tokens']:
-            # Filter out the old keys that don't have jwt_key (pre-0.76)
-            if 'jwt_key' not in rt_dict:
-                continue
-
             created_at = dt_util.parse_datetime(rt_dict['created_at'])
             if created_at is None:
                 getLogger(__name__).error(
@@ -244,15 +333,7 @@ class AuthStore:
                     '%(created_at)s for user_id %(user_id)s', rt_dict)
                 continue
 
-            token_type = rt_dict.get('token_type')
-            if token_type is None:
-                if rt_dict['client_id'] is None:
-                    token_type = models.TOKEN_TYPE_SYSTEM
-                else:
-                    token_type = models.TOKEN_TYPE_NORMAL
-
-            # old refresh_token don't have last_used_at (pre-0.78)
-            last_used_at_str = rt_dict.get('last_used_at')
+            last_used_at_str = rt_dict['last_used_at']
             if last_used_at_str:
                 last_used_at = dt_util.parse_datetime(last_used_at_str)
             else:
@@ -262,21 +343,23 @@ class AuthStore:
                 id=rt_dict['id'],
                 user=users[rt_dict['user_id']],
                 client_id=rt_dict['client_id'],
-                # use dict.get to keep backward compatibility
-                client_name=rt_dict.get('client_name'),
-                client_icon=rt_dict.get('client_icon'),
-                token_type=token_type,
+                client_name=rt_dict['client_name'],
+                client_icon=rt_dict['client_icon'],
+                token_type=rt_dict['token_type'],
                 created_at=created_at,
                 access_token_expiration=timedelta(
                     seconds=rt_dict['access_token_expiration']),
                 token=rt_dict['token'],
                 jwt_key=rt_dict['jwt_key'],
                 last_used_at=last_used_at,
-                last_used_ip=rt_dict.get('last_used_ip'),
+                last_used_ip=rt_dict['last_used_ip'],
             )
             users[rt_dict['user_id']].refresh_tokens[token.id] = token
 
+        self._groups = groups
         self._users = users
+        self._default_new_user_group_id = data['default_new_user_group_id']
+        self._system_user_group_id = data['system_user_group_id']
 
     @callback
     def _async_schedule_save(self) -> None:
@@ -290,16 +373,26 @@ class AuthStore:
     def _data_to_save(self) -> Dict:
         """Return the data to store."""
         assert self._users is not None
+        assert self._groups is not None
 
         users = [
             {
                 'id': user.id,
+                'group_id': user.group.id,
                 'is_owner': user.is_owner,
                 'is_active': user.is_active,
                 'name': user.name,
-                'system_generated': user.system_generated,
             }
             for user in self._users.values()
+        ]
+
+        groups = [
+            {
+                'name': group.name,
+                'id': group.id,
+                'system_generated': group.system_generated,
+            }
+            for group in self._groups.values()
         ]
 
         credentials = [
@@ -338,6 +431,26 @@ class AuthStore:
 
         return {
             'users': users,
+            'groups': groups,
             'credentials': credentials,
             'refresh_tokens': refresh_tokens,
+            'default_new_user_group_id': self._default_new_user_group_id,
+            'system_user_group_id': self._system_user_group_id,
         }
+
+    def _set_defaults(self) -> None:
+        """Set default values for auth store."""
+        self._users = OrderedDict()  # type: Dict[str, models.User]
+
+        # Add default groups
+        system_group = models.Group(name='System', system_generated=True)
+        family_group = models.Group(name='Family')
+
+        self._default_new_user_group_id = family_group.id
+        self._system_user_group_id = system_group.id
+
+        groups = OrderedDict()  # type: Dict[str, models.Group]
+        groups[system_group.id] = system_group
+        groups[family_group.id] = family_group
+
+        self._groups = groups
