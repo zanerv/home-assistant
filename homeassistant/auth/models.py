@@ -7,6 +7,7 @@ import attr
 
 from homeassistant.util import dt as dt_util
 
+from . import permissions
 from .util import generate_secret
 
 TOKEN_TYPE_NORMAL = 'normal'
@@ -19,9 +20,25 @@ class Group:
     """A group."""
 
     name = attr.ib(type=str)  # type: Optional[str]
+    policy = attr.ib(type=Dict[str, dict])
     id = attr.ib(type=str, default=attr.Factory(lambda: uuid.uuid4().hex))
     # System generated groups cannot be changed
     system_generated = attr.ib(type=bool, default=False)
+
+    _permissions = attr.ib(
+        type=permissions.PolicyPermissions,
+        init=False,
+        cmp=False,
+        default=None,
+    )
+
+    @property
+    def permissions(self):
+        """Return group permissions."""
+        if self._permissions is None:
+            self._permissions = permissions.PolicyPermissions(self.policy)
+
+        return self._permissions
 
 
 @attr.s(slots=True)
@@ -43,6 +60,13 @@ class User:
     refresh_tokens = attr.ib(
         type=dict, default=attr.Factory(dict), cmp=False
     )  # type: Dict[str, RefreshToken]
+
+    @property
+    def permissions(self):
+        """Return permissions object for user."""
+        if self.is_owner:
+            return permissions.OwnerPermissions
+        return self.group.permissions
 
 
 @attr.s(slots=True)

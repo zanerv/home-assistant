@@ -16,6 +16,11 @@ from . import models
 STORAGE_VERSION = 2
 STORAGE_KEY = 'auth'
 
+DEFAULT_POLICY = {
+    # Whitelist all entities
+    'entities': True,
+}
+
 
 class DataStore(storage.Store):
     """Store the auth data on disk using JSON."""
@@ -305,6 +310,7 @@ class AuthStore:
                 name=group_dict['name'],
                 id=group_dict['id'],
                 system_generated=group_dict['system_generated'],
+                policy=group_dict.get('policy', DEFAULT_POLICY),
             )
 
         for user_dict in data['users']:
@@ -386,14 +392,18 @@ class AuthStore:
             for user in self._users.values()
         ]
 
-        groups = [
-            {
+        groups = []
+        for group in self._groups.values():
+            g_dict = {
                 'name': group.name,
                 'id': group.id,
                 'system_generated': group.system_generated,
             }
-            for group in self._groups.values()
-        ]
+
+            if group.policy is not DEFAULT_POLICY:
+                g_dict['policy'] = group.policy
+
+            groups.append(g_dict)
 
         credentials = [
             {
@@ -443,8 +453,15 @@ class AuthStore:
         self._users = OrderedDict()  # type: Dict[str, models.User]
 
         # Add default groups
-        system_group = models.Group(name='System', system_generated=True)
-        family_group = models.Group(name='Family')
+        system_group = models.Group(
+            name='System',
+            system_generated=True,
+            policy=DEFAULT_POLICY,
+        )
+        family_group = models.Group(
+            name='Family',
+            policy=DEFAULT_POLICY,
+        )
 
         self._default_new_user_group_id = family_group.id
         self._system_user_group_id = system_group.id
