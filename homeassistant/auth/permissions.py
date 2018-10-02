@@ -103,27 +103,38 @@ def _compile_entities(policy):
 
     funcs = []
 
+    # The order of these functions matter. The more precise are at the top.
+
+    # If it's False, no need to process it.
+    if entity_ids and entity_ids is not False:
+        def allowed_entity_id(entity_id, keys):
+            """Test if allowed entity_id."""
+            return entity_ids.get(entity_id)
+
+        funcs.append(allowed_entity_id)
+
     # If it's False, no need to process it.
     if domains and domains is not False:
         def allowed_domain(entity_id, keys):
             """Test if allowed domain."""
             domain = entity_id.split(".", 1)[0]
-            return domains.get(domain) is True
+            return domains.get(domain)
 
         funcs.append(allowed_domain)
-
-    # If it's False, no need to process it.
-    if entity_ids and entity_ids is not False:
-        def allowed_entity_id(entity_id, keys):
-            """Test if allowed domain."""
-            return entity_ids.get(entity_id) is True
-
-        funcs.append(allowed_entity_id)
 
     if not funcs:
         return lambda entity_id, keys: False
 
     if len(funcs) == 1:
-        return funcs[0]
+        func = funcs[0]
+        return lambda entity_id, keys: func(entity_id, keys) is True
 
-    return lambda entity_id, keys: any(func(entity_id, keys) for func in funcs)
+    def apply_policy(entity_id, keys):
+        """Apply several policies."""
+        for func in funcs:
+            result = func(entity_id, keys)
+            if result is not None:
+                return result
+        return False
+
+    return apply_policy

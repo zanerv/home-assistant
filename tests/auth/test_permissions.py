@@ -7,7 +7,7 @@ def test_entities_none():
     """Test entity ID policy."""
     policy = None
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is False
 
 
 def test_entities_empty():
@@ -15,7 +15,7 @@ def test_entities_empty():
     policy = {}
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is False
 
 
 def test_entities_false():
@@ -23,7 +23,7 @@ def test_entities_false():
     policy = False
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is False
 
 
 def test_entities_true():
@@ -31,7 +31,7 @@ def test_entities_true():
     policy = True
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is True
 
 
 def test_entities_domains_true():
@@ -41,7 +41,7 @@ def test_entities_domains_true():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is True
 
 
 def test_entities_domains_false():
@@ -51,7 +51,7 @@ def test_entities_domains_false():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is False
 
 
 def test_entities_domains_domain_true():
@@ -63,8 +63,8 @@ def test_entities_domains_domain_true():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert compiled('light.kitchen', [])
-    assert not compiled('switch.kitchen', [])
+    assert compiled('light.kitchen', []) is True
+    assert compiled('switch.kitchen', []) is False
 
 
 def test_entities_domains_domain_false():
@@ -76,8 +76,8 @@ def test_entities_domains_domain_false():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
-    assert not compiled('switch.kitchen', [])
+    assert compiled('light.kitchen', []) is False
+    assert compiled('switch.kitchen', []) is False
 
 
 def test_entities_entity_ids_true():
@@ -87,7 +87,7 @@ def test_entities_entity_ids_true():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is True
 
 
 def test_entities_entity_ids_false():
@@ -97,7 +97,7 @@ def test_entities_entity_ids_false():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
+    assert compiled('light.kitchen', []) is False
 
 
 def test_entities_entity_ids_entity_id_true():
@@ -109,8 +109,8 @@ def test_entities_entity_ids_entity_id_true():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert compiled('light.kitchen', [])
-    assert not compiled('switch.kitchen', [])
+    assert compiled('light.kitchen', []) is True
+    assert compiled('switch.kitchen', []) is False
 
 
 def test_entities_entity_ids_entity_id_false():
@@ -122,8 +122,24 @@ def test_entities_entity_ids_entity_id_false():
     }
     permissions.ENTITY_POLICY_SCHEMA(policy)
     compiled = permissions._compile_entities(policy)
-    assert not compiled('light.kitchen', [])
-    assert not compiled('switch.kitchen', [])
+    assert compiled('light.kitchen', []) is False
+    assert compiled('switch.kitchen', []) is False
+
+
+def test_entities_domain_and_entity_ids():
+    """Test entity ID policy whitelist domain, decline entity."""
+    policy = {
+        'domains': {
+            'light': True,
+        },
+        'entity_ids': {
+            'light.kitchen': False
+        }
+    }
+    permissions.ENTITY_POLICY_SCHEMA(policy)
+    compiled = permissions._compile_entities(policy)
+    assert compiled('light.living_room', []) is True
+    assert compiled('light.kitchen', []) is False
 
 
 def test_policy_perm_filter_entities():
