@@ -1,6 +1,5 @@
 """Permissions for Home Assistant."""
-from typing import (
-    Any, Callable, Dict, List, Mapping, Tuple, Union, cast)  # noqa: F401
+from typing import Any, Callable, List, Mapping, Tuple, Union  # noqa: F401
 
 import voluptuous as vol
 
