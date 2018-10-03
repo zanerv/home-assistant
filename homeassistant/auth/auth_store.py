@@ -398,7 +398,7 @@ class AuthStore:
                 'name': group.name,
                 'id': group.id,
                 'system_generated': group.system_generated,
-            }
+            }  # type: Dict[str, Any]
 
             if group.policy is not DEFAULT_POLICY:
                 g_dict['policy'] = group.policy

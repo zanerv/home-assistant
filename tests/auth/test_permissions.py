@@ -113,6 +113,17 @@ def test_entities_entity_ids_entity_id_true():
     assert compiled('switch.kitchen', []) is False
 
 
+def test_entities_precision_order():
+    """Test entity ID policy."""
+    policy = {
+        'entity_ids': False,
+        'domains': True,
+    }
+    permissions.ENTITY_POLICY_SCHEMA(policy)
+    compiled = permissions._compile_entities(policy)
+    assert compiled('light.kitchen', []) is False
+
+
 def test_entities_entity_ids_entity_id_false():
     """Test entity ID policy."""
     policy = {

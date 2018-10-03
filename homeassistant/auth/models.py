@@ -7,7 +7,7 @@ import attr
 
 from homeassistant.util import dt as dt_util
 
-from . import permissions
+from . import permissions as perm_pkg
 from .util import generate_secret
 
 TOKEN_TYPE_NORMAL = 'normal'
@@ -20,23 +20,23 @@ class Group:
     """A group."""
 
     name = attr.ib(type=str)  # type: Optional[str]
-    policy = attr.ib(type=Dict[str, dict])
+    policy = attr.ib(type=perm_pkg.POLICY_TYPE)
     id = attr.ib(type=str, default=attr.Factory(lambda: uuid.uuid4().hex))
     # System generated groups cannot be changed
     system_generated = attr.ib(type=bool, default=False)
 
     _permissions = attr.ib(
-        type=permissions.PolicyPermissions,
+        type=perm_pkg.PolicyPermissions,
         init=False,
         cmp=False,
         default=None,
     )
 
     @property
-    def permissions(self):
+    def permissions(self) -> perm_pkg.AbstractPermissions:
         """Return group permissions."""
         if self._permissions is None:
-            self._permissions = permissions.PolicyPermissions(self.policy)
+            self._permissions = perm_pkg.PolicyPermissions(self.policy)
 
         return self._permissions
 
@@ -62,10 +62,10 @@ class User:
     )  # type: Dict[str, RefreshToken]
 
     @property
-    def permissions(self):
+    def permissions(self) -> perm_pkg.AbstractPermissions:
         """Return permissions object for user."""
         if self.is_owner:
-            return permissions.OwnerPermissions
+            return perm_pkg.OwnerPermissions
         return self.group.permissions
 
 
